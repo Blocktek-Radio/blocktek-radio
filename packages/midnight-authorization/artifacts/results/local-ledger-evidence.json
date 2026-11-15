@@ -1,0 +1,300 @@
+{
+  "evidenceKind": "ledger-9-local-integration",
+  "networkId": "undeployed",
+  "testStartedAt": "2026-11-15T18:48:24.605Z",
+  "contractVersion": "AudioTrustPublisherAuthorization / Compact 0.36.0",
+  "contractAddress": "10933a308a2111245b36ecc44069751a191d8ce03bdf86c3f01f85a5e721a23a",
+  "scenarios": [
+    {
+      "name": "initial issuer configuration",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "deployment": {
+        "txId": "0047303f7090e671c3850aebb214a873dc52b521c2f08e7494337191898592da35",
+        "blockHeight": 1195
+      },
+      "resultingState": "issuer active; policy version 1"
+    },
+    {
+      "name": "valid BlockTek eligibility authorization",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "00adea8b311e4804c16d0dcf7eb1454ce80f0946e9e337f0e4f2650b8ede46ede3",
+      "blockHeight": 1217,
+      "event": {
+        "eventType": "Misc",
+        "name": "bb86e3f35657b31bcaa94402fb5ea0ef6d61b28cbb8c976058b915955e6427af",
+        "payload": "417564696f54727573743a7075626c69736865722d617574686f72697a65643a7631000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "resultingState": "one request nullifier"
+    },
+    {
+      "name": "replayed request nullifier",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "registration authorization replayed",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "wrong issuer",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "wrong issuer",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "missing identity claim",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "individual identity claim required",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "missing organization claim",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "organization membership claim required",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "missing publisher claim",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "publisher authorization claim required",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "expired credential",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "credential expired",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "not-yet-valid credential",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "credential is not yet valid",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "invalid request binding",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "wrong contract context",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "invalid issuer signature",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "invalid issuer signature",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "malformed commitment",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "malformed input rejected before ledger mutation",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "independent registration request",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "00830a9691ea079500964598d1591ad39d0be580b613288598df743e1dfd9adaa5",
+      "blockHeight": 1241,
+      "resultingState": "two request nullifiers"
+    },
+    {
+      "name": "credential revocation",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "00b12d777494e2547f4358f6dc7d736eafcc1f56ad02731793518f4cecff8d1a3f",
+      "blockHeight": 1265,
+      "event": {
+        "eventType": "Misc",
+        "name": "ef554ddc069bf13055bd0d295de951a4a3c883d84ccfae8037383e6d8a2ea246",
+        "payload": "417564696f54727573743a63726564656e7469616c2d7265766f6b65643a76310000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "resultingState": "one request-scoped revocation entry"
+    },
+    {
+      "name": "authorization after revocation",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "credential revoked",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "same credential handle with a different request remains unlinked and eligible",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "00b44892b1a0f5c5d4b9e70d32225efa22beffdbff71c300ae37a5ad9e77df536e",
+      "blockHeight": 1291,
+      "resultingState": "request-scoped revocation does not revoke a distinct request"
+    },
+    {
+      "name": "unauthorized issuer update",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "unauthorized issuer update",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "issuer suspension",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "00cb6ae93d4ab5343ed5b0c5b9babbd1e3d0badd5f2d5e31e8ba6b4119242e2cf0",
+      "blockHeight": 1311,
+      "event": {
+        "eventType": "Misc",
+        "name": "0101010101010101010101010101010101010101010101010101010101010101",
+        "payload": "417564696f54727573743a6973737565722d7570646174653a763100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "authorization while issuer suspended",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "issuer suspended",
+      "resultingState": "consumed nullifier count unchanged"
+    },
+    {
+      "name": "issuer reinstatement",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "001d9c26a56dd3f83315aa49f2c68a8228bb3370c9bd82fb5fda0c4b39c2ccab22",
+      "blockHeight": 1334,
+      "event": {
+        "eventType": "Misc",
+        "name": "0101010101010101010101010101010101010101010101010101010101010101",
+        "payload": "417564696f54727573743a6973737565722d7570646174653a763100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "issuer key rotation",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "GENERATED",
+      "transactionSubmission": "SUBMITTED_AND_FINALIZED",
+      "ledgerOutcome": "ACCEPTED",
+      "txId": "0025d2a4441ff71e19556411ea249a2820ca88af7d68e7e750b4a12c402107ad03",
+      "blockHeight": 1354,
+      "event": {
+        "eventType": "Misc",
+        "name": "0101010101010101010101010101010101010101010101010101010101010101",
+        "payload": "417564696f54727573743a6973737565722d7570646174653a763100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "name": "authorization using old issuer key after rotation",
+      "inputCategory": "synthetic deterministic test data",
+      "proofGeneration": "FAILED_BEFORE_SUBMISSION",
+      "transactionSubmission": "NOT_SUBMITTED",
+      "ledgerOutcome": "REJECTED_BY_CIRCUIT",
+      "reason": "invalid issuer signature",
+      "resultingState": "consumed nullifier count unchanged"
+    }
+  ],
+  "transactionIds": [
+    {
+      "kind": "deploy",
+      "txId": "0047303f7090e671c3850aebb214a873dc52b521c2f08e7494337191898592da35",
+      "blockHeight": 1195
+    },
+    {
+      "kind": "authorization",
+      "txId": "00adea8b311e4804c16d0dcf7eb1454ce80f0946e9e337f0e4f2650b8ede46ede3",
+      "blockHeight": 1217
+    },
+    {
+      "kind": "authorization",
+      "txId": "00830a9691ea079500964598d1591ad39d0be580b613288598df743e1dfd9adaa5",
+      "blockHeight": 1241
+    },
+    {
+      "kind": "revocation",
+      "txId": "00b12d777494e2547f4358f6dc7d736eafcc1f56ad02731793518f4cecff8d1a3f",
+      "blockHeight": 1265
+    },
+    {
+      "kind": "authorization",
+      "txId": "00b44892b1a0f5c5d4b9e70d32225efa22beffdbff71c300ae37a5ad9e77df536e",
+      "blockHeight": 1291
+    },
+    {
+      "kind": "issuer-update",
+      "txId": "00cb6ae93d4ab5343ed5b0c5b9babbd1e3d0badd5f2d5e31e8ba6b4119242e2cf0",
+      "blockHeight": 1311
+    },
+    {
+      "kind": "issuer-update",
+      "txId": "001d9c26a56dd3f83315aa49f2c68a8228bb3370c9bd82fb5fda0c4b39c2ccab22",
+      "blockHeight": 1334
+    },
+    {
+      "kind": "issuer-update",
+      "txId": "0025d2a4441ff71e19556411ea249a2820ca88af7d68e7e750b4a12c402107ad03",
+      "blockHeight": 1354
+    }
+  ],
+  "deployment": {
+    "txId": "0047303f7090e671c3850aebb214a873dc52b521c2f08e7494337191898592da35",
+    "blockHeight": 1195
+  },
+  "testFinishedAt": "2026-11-15T19:04:44.300Z",
+  "status": "PASSED",
+  "runnerSummary": {
+    "command": "pnpm test:integration",
+    "testRunner": "Vitest 5.0.4",
+    "testFilesPassed": 1,
+    "testFilesFailed": 0,
+    "testsPassed": 5,
+    "testsFailed": 0,
+    "testsSkipped": 0,
+    "durationSeconds": 989.37,
+    "scenarioCount": 22,
+    "finalizedTransactionCount": 8,
+    "reconciledAt": "2026-11-15T19:05:30Z"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "evidenceKind": "compact-runtime-simulation",
+  "notProofOrLedgerEvidence": true,
+  "testTimestamp": "2026-11-15T15:32:43Z",
+  "networkId": null,
+  "deploymentReference": null,
+  "contractAddress": null,
+  "proofGeneration": "NOT_RUN",
+  "transactionSubmission": "NOT_RUN",
+  "testSummary": {
+    "runtime": { "passed": 7, "failed": 0, "skipped": 0 },
+    "proof": { "passed": 0, "failed": 0, "skipped": 0, "status": "NOT_RUN" },
+    "transactionBacked": { "passed": 0, "failed": 0, "skipped": 0, "status": "BLOCKED_NO_DEVNET" },
+    "privacy": { "passed": 1, "failed": 0, "skipped": 0, "status": "RUNTIME_SCHEMA_CHECK_ONLY" },
+    "governance": { "passed": 5, "failed": 0, "skipped": 0, "status": "RUNTIME_SIMULATION" }
+  },
+  "scenarios": [
+    { "name": "valid authorization and independent request", "inputCategory": "synthetic eligibility statement", "runtimeOutcome": "PASS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime nullifier map grew for two distinct requests" },
+    { "name": "invalid signature, wrong issuer, and missing eligibility claims", "inputCategory": "synthetic invalid statements", "runtimeOutcome": "PASS_REJECTIONS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime nullifier map unchanged on rejected calls" },
+    { "name": "expired credential and replay", "inputCategory": "synthetic expiry and repeated request", "runtimeOutcome": "PASS_REJECTIONS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime replay rejected; no second nullifier" },
+    { "name": "issuer suspension and credential revocation", "inputCategory": "synthetic issuer update and revocation", "runtimeOutcome": "PASS_REJECTIONS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime suspension/revocation prevented authorization" },
+    { "name": "key rotation, old-key invalidation, and reinstatement", "inputCategory": "synthetic issuer keys and statements", "runtimeOutcome": "PASS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime new key accepted; old key rejected; reinstatement accepted" },
+    { "name": "unauthorized update and malformed commitment", "inputCategory": "synthetic malformed/admin statements", "runtimeOutcome": "PASS_REJECTIONS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime state unchanged on rejected calls" },
+    { "name": "public ledger schema allowlist", "inputCategory": "declared ledger schema", "runtimeOutcome": "PASS", "proofGeneration": "NOT_RUN", "transactionSubmission": "NOT_RUN", "ledgerOutcome": "NOT_RUN", "resultingState": "runtime schema keys match intended issuer and opaque maps" }
+  ]
+}

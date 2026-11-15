@@ -19,6 +19,13 @@ yarn-error.log*
 # env files
 .env*
 
+# Midnight local development state (never commit local wallets or node data)
+/packages/midnight-authorization/.devnet/
+/packages/midnight-authorization/devnet-data/
+/packages/midnight-authorization/accounts.json
+/packages/midnight-authorization/wallets.local.json
+/packages/midnight-authorization/artifacts/contract/deployment-address.local.json
+
 # vercel
 .vercel
 

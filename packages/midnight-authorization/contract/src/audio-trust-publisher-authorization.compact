@@ -1,0 +1,154 @@
+pragma language_version 0.28;
+
+import CompactStandardLibrary;
+
+// Minimal AudioTrust publisher authorization contract. All `ledger` fields
+// are public. Credential claims, nonce, signature and revocation handle are
+// private circuit inputs; only request-scoped opaque references are recorded.
+struct CredentialStatement {
+  domain: Bytes<32>;
+  contractContext: Bytes<32>;
+  issuerId: Bytes<32>;
+  schemaVersion: Uint<32>;
+  subjectCommitment: Bytes<32>;
+  individualVerified: Boolean;
+  organizationMember: Boolean;
+  publisherAuthorized: Boolean;
+  issuedAt: Uint<64>;
+  expiresAt: Uint<64>;
+  registrationCommitment: Bytes<32>;
+  policyVersion: Uint<32>;
+  nonce: Bytes<32>;
+  revocationHandle: Bytes<32>;
+}
+
+export ledger issuerId: Bytes<32>;
+
+export ledger issuerPublicKey: Curve25519Point;
+
+export ledger issuerActive: Boolean;
+
+export ledger policyVersion: Uint<32>;
+
+export ledger consumedNullifiers: Map<Bytes<32>, Boolean>;
+
+// Public keys are request-scoped pseudorandom references, derived from a
+// high-entropy private handle plus this deployment and request. The stable
+// handle itself is never disclosed or stored in public state.
+export ledger revokedRequestReferences: Map<Bytes<32>, Boolean>;
+
+constructor(initialIssuerId: Bytes<32>, initialIssuerPublicKey: Curve25519Point) {
+  issuerId = disclose(initialIssuerId);
+  issuerPublicKey = disclose(initialIssuerPublicKey);
+  issuerActive = true;
+  policyVersion = 1;
+}
+
+// Ed25519 verifier is the Compact 0.36 standard-library circuit. The issuer
+// signs the canonical `persistentHash` of this fixed typed statement.
+export circuit authorizeRegistration(
+                 statement: CredentialStatement,
+                 signature: Ed25519Signature
+                 ): [] {
+  assert(statement.domain == pad(32, "AudioTrust:credential:v1"), "wrong credential domain");
+  assert(issuerActive, "issuer suspended");
+  assert(statement.issuerId == issuerId, "wrong issuer");
+  assert(statement.schemaVersion == 1, "unsupported credential schema");
+  assert(statement.policyVersion == policyVersion, "stale policy version");
+  assert(statement.individualVerified, "individual identity claim required");
+  assert(statement.organizationMember, "organization membership claim required");
+  assert(statement.publisherAuthorized, "publisher authorization claim required");
+  assert(statement.expiresAt > statement.issuedAt, "invalid credential validity interval");
+  assert(blockTimeGte(disclose(statement.issuedAt)), "credential is not yet valid");
+  assert(blockTimeLte(disclose(statement.expiresAt)), "credential expired");
+  const revocationReference =
+          persistentHash<Vector<5, Bytes<32>>>(
+            [pad(32, "AudioTrust:revref:v1"),
+             kernel.self().bytes,
+             statement.revocationHandle,
+             statement.registrationCommitment,
+             statement.nonce]
+            );
+  assert(!revokedRequestReferences.member(disclose(revocationReference)),
+         "credential revoked");
+  assert(statement.contractContext == kernel.self().bytes, "wrong contract context");
+
+  const message = persistentHash<CredentialStatement>(statement);
+  assert(ed25519Verify<32>(message, signature, issuerPublicKey), "invalid issuer signature");
+
+  const nullifier =
+          persistentHash<Vector<4, Bytes<32>>>(
+            [pad(32, "AudioTrust:auth:v1"),
+             kernel.self().bytes,
+             statement.registrationCommitment,
+             statement.nonce]
+            );
+  assert(!consumedNullifiers.member(disclose(nullifier)), "registration authorization replayed");
+  consumedNullifiers.insert(disclose(nullifier), true);
+  emit(Misc {
+    name: disclose(nullifier),
+    payload: pad(256, "AudioTrust:publisher-authorized:v1")
+  });
+}
+
+// Key rotation and suspension are controlled by a signature from the current
+// issuer key. The signed digest uses the same fixed typed encoding.
+struct IssuerUpdate {
+  domain: Bytes<32>;
+  contractContext: Bytes<32>;
+  nextIssuerId: Bytes<32>;
+  nextIssuerPublicKey: Curve25519Point;
+  nextActive: Boolean;
+  nextPolicyVersion: Uint<32>;
+  nonce: Bytes<32>;
+}
+
+export circuit updateIssuer(update: IssuerUpdate, signature: Ed25519Signature): [] {
+  assert(update.domain == pad(32, "AudioTrust:issuer-update:v1"), "wrong issuer update domain");
+  assert(update.contractContext == kernel.self().bytes, "wrong contract context");
+  assert(update.nextPolicyVersion >= policyVersion, "policy version cannot decrease");
+  const message = persistentHash<IssuerUpdate>(update);
+  assert(ed25519Verify<32>(message, signature, issuerPublicKey), "unauthorized issuer update");
+  issuerId = disclose(update.nextIssuerId);
+  issuerPublicKey = disclose(update.nextIssuerPublicKey);
+  issuerActive = disclose(update.nextActive);
+  policyVersion = disclose(update.nextPolicyVersion);
+  emit(Misc {
+    name: disclose(issuerId),
+    payload: pad(256, "AudioTrust:issuer-update:v1")
+  });
+}
+
+struct RevocationStatement {
+  domain: Bytes<32>;
+  contractContext: Bytes<32>;
+  issuerId: Bytes<32>;
+  revocationHandle: Bytes<32>;
+  registrationCommitment: Bytes<32>;
+  requestNonce: Bytes<32>;
+  nonce: Bytes<32>;
+}
+
+export circuit revokeCredential(statement: RevocationStatement, signature: Ed25519Signature): [] {
+  assert(statement.domain == pad(32, "AudioTrust:revoke:v1"), "wrong revocation domain");
+  assert(issuerActive, "issuer suspended");
+  assert(statement.issuerId == issuerId, "wrong issuer");
+  assert(statement.contractContext == kernel.self().bytes, "wrong contract context");
+  const message = persistentHash<RevocationStatement>(statement);
+  assert(ed25519Verify<32>(message, signature, issuerPublicKey), "unauthorized revocation");
+  const revocationReference =
+          persistentHash<Vector<5, Bytes<32>>>(
+            [pad(32, "AudioTrust:revref:v1"),
+             kernel.self().bytes,
+             statement.revocationHandle,
+             statement.registrationCommitment,
+             statement.requestNonce]
+            );
+  const publicReference = disclose(revocationReference);
+  assert(!revokedRequestReferences.member(publicReference), "credential already revoked");
+  revokedRequestReferences.insert(publicReference, true);
+  emit(Misc {
+    name: publicReference,
+    payload: pad(256, "AudioTrust:credential-revoked:v1")
+  });
+}
