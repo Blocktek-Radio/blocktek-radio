@@ -4,6 +4,8 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import * as runtime from '@midnight-ntwrk/compact-runtime';
 import { Contract, ledger } from '../artifacts/contract/contract/index.js';
 
+test.todo('[BLOCKED SECURITY REGRESSION] a credential revoked for request A must not authorize distinct request B with the same handle; current request-scoped contract permits it');
+
 const now = BigInt(Math.floor(Date.now() / 1000));
 const bytes = (value) => new Uint8Array(32).fill(value);
 const pad = (value) => {

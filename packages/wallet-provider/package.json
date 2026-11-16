@@ -1,0 +1,11 @@
+{
+  "name": "@blocktek/wallet-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "dependencies": {
+    "@midnightntwrk/dapp-connector-api": "4.1.0",
+    "@noble/curves": "1.9.7"
+  }
+}
