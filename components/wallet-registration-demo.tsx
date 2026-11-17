@@ -25,6 +25,36 @@ export default function WalletRegistrationDemo() {
 
   useEffect(() => { setWallets(discoverMidnightWallets()) }, [])
 
+  useEffect(() => {
+    if (!provider) return
+    let active = true
+    const refreshWalletState = async () => {
+      try {
+        const network = await provider.getNetwork()
+        const currentAccount = await provider.getAccount()
+        if (!active) return
+        if (network !== NETWORK || currentAccount !== account) {
+          setAccount(currentAccount)
+          setIntent(null)
+          setResult('')
+          setError('Wallet account or network changed while the page was inactive. Review the connection and prepare a new signing intent.')
+        }
+      } catch (cause) {
+        if (active) setError(cause instanceof Error ? cause.message : 'Could not refresh wallet state.')
+      }
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshWalletState()
+    }
+    window.addEventListener('focus', refreshWalletState)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      active = false
+      window.removeEventListener('focus', refreshWalletState)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [provider, account])
+
   async function connect(real: boolean) {
     setError(''); setResult(''); setIntent(null)
     try {
