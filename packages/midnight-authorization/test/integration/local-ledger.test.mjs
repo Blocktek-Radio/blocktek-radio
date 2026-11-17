@@ -41,7 +41,9 @@ const compactSignature = (b) => ({ r: point(b.slice(0, 32)), s: littleEndianBigI
 const contractForHashing = new Contract({});
 const artifactPath = fileURLToPath(new URL('../../artifacts/contract', import.meta.url));
 const addressPath = path.resolve(artifactPath, 'deployment-address.local.json');
-const evidencePath = path.resolve(artifactPath, '../results/local-ledger-evidence.json');
+const evidencePath = path.resolve(
+  process.env.AUDIOTRUST_EVIDENCE_PATH ?? path.resolve(artifactPath, '../results/local-ledger-evidence.json'),
+);
 const evidence = {
   evidenceKind: 'ledger-9-local-integration',
   networkId: NETWORK_ID,

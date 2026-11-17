@@ -1,70 +1,72 @@
-# BlockTek Radio Protocol
+# BlockTek AudioTrust
 
-A Next.js 16 prototype for BlockTek Radio Protocol and BlockTek AudioTrust: radio distribution infrastructure with explicit publisher, integrity and provenance evidence.
+AudioTrust is a portable audio provenance service for Web3 media, podcasts, DAO channels, and ecosystem publishers. It is designed to answer: **who published this release, which key authorized it, what exact file was registered, and what verifiable evidence exists?** It does not determine whether audio is truthful, identify a real-world voice, establish copyright ownership, or prove that a recording was unmodified before registration.
+
+## Current implementation
+
+- Next.js 16.4.6 frontend with product, identity, developer, publisher workspace, and public verification surfaces. The identity page still includes prototype behavior.
+- Midnight wallet adapter based on the pinned DApp Connector API 4.1.0. It has no verified live 1AM session or address-binding result.
+- Compact publisher authorization package with historical proof-backed Ledger 9 local evidence. Current credential revocation is request-scoped, so credential-wide revocation remains a security blocker; no public deployment is authorized.
+- TypeScript/Fastify API with PostgreSQL account sessions, publisher onboarding, private audio upload, server-side SHA-256, canonical manifests, durable one-time wallet intent nonces, publisher signature verification, AudioTrust Ed25519 signatures, public evidence, and exact-file comparison. Midnight submission remains pending.
+
+See [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md), [roadmap](docs/roadmap/DEVELOPMENT_ROADMAP.md), [milestone status](docs/roadmap/MILESTONE_STATUS.md), and [security model](docs/security/MVP_SECURITY_MODEL.md).
+
+## Why Midnight is in the design
+
+Exact-file SHA-256 and portable signatures do not require Midnight. The authorization use case does: an authorized publisher should be able to prove that an issuer approved its publishing eligibility while keeping the underlying credential claims private. The current Compact contract is an isolated proof-backed prototype, not yet connected to the new registration API. The unresolved cross-request revocation gap means it cannot yet provide the required current authorization guarantee.
 
 ## Run locally
 
+Install dependencies, start the isolated user-owned PostgreSQL cluster, then apply migrations:
+
 ```bash
 pnpm install
-pnpm dev
+./scripts/dev-db-up.sh
+pnpm api:migrate
 ```
 
-Open `http://localhost:3000`. The `/verify` route calculates SHA-256 locally in the browser for supported audio files. It intentionally does not fabricate signatures, C2PA results, detector signals, watermark findings or blockchain anchors.
+Run the UI and API in separate terminals:
 
-## Routes
+```bash
+pnpm dev
+pnpm api:dev
+```
 
-- `/` protocol overview
-- `/audiotrust` evidence layer and pilot pricing hypotheses
-- `/verify` local hash verifier and unavailable-state report
-- `/identity` demo identity registry
-- `/developers` proposed API contracts
-- `/enterprise` pilot operating model
-- `/app` creator workspace prototype
+The UI is at `http://localhost:3000`; the API health endpoint is `http://127.0.0.1:4100/api/v1/health`. PostgreSQL uses a private Unix socket on port 5440 and its data lives outside the repository. `scripts/dev-db-down.sh` stops only AudioTrust's user-owned cluster. See [local setup](docs/architecture/SYSTEM_ARCHITECTURE.md#local-development).
 
-## Configuration and deployment
+Create the explicitly development-only AudioTrust platform signing key once after starting PostgreSQL:
 
-Copy `.env.example` to `.env.local` for optional server-side provider configuration. Private credentials must remain server-side. Provider adapters are typed in `lib/protocol.ts`; connect real implementations before showing a positive result. Deploy through the Vercel project connected to this repository and configure only the variables required by the enabled adapters.
+```bash
+pnpm api:platform-key:dev
+```
 
-## Trust model
+It is stored outside the repo with mode `0600`; never use this local key for production.
 
-A valid signing key proves control of that key, not the truth of a recording or the real-world identity of a speaker. Exact hashes, perceptual similarity, provenance, watermark signals, detector outputs and blockchain commitments are shown as separate evidence. Voice biometrics are outside the MVP.
-
-## Current status
-
-The UI and local verifier are functional prototype surfaces. The repository contains an isolated Midnight authorization package at `packages/midnight-authorization/` and a creator wallet provider prototype at `packages/wallet-provider/`.
-
-### Creator wallet integration (M1.2)
-
-- The provider layer uses the pinned Midnight DApp Connector API (`@midnightntwrk/dapp-connector-api` 4.1.0), with connector discovery, explicit wallet selection, connect/disconnect, account and network checks, normalized errors, and a fail-closed signing boundary.
-- The `/app` workspace includes an intent review and message-signing demonstration. It uses synthetic registration and manifest commitments. A separate development mock is available only outside production; it is not a real wallet and is never used as a production fallback.
-- Creator intents use deterministic, domain-separated `audiotrust.creator-registration` v1 JSON and the Midnight message-signing prefix. Local tests verify BIP-340 Schnorr and ECDSA/secp256k1 signatures. Actual 1AM connection, signature encoding, and proof that a signing key derives the connected Midnight address have not been verified.
-- The signing demo does not submit a transaction or call the authorization contract. It reports publisher authorization as blocked/test-only. A connected wallet or creator signature is not a BlockTek publisher credential.
-- **M1.2 status: PARTIAL — REAL WALLET DEPENDENCY PENDING.** The browser access host was unavailable for live 1AM testing. No public network deployment was performed.
-
-Run the wallet/provider tests from the repository root:
+## Checks
 
 ```bash
 pnpm test:wallet
+pnpm api:build
+pnpm api:migrate
 ```
 
-### Midnight authorization implementation
+Midnight package checks and proof-backed integration are documented in [packages/midnight-authorization/README.md](packages/midnight-authorization/README.md). Historical transaction evidence must not be represented as a fresh run.
 
-- A Compact 0.36.0 publisher-authorization contract targets the Ledger 9 toolchain. It verifies issuer-signed eligibility statements, enforces request replay protection, supports issuer suspension/reinstatement/key rotation, and emits authorization, issuer-update and revocation events.
-- Historical local Ledger 9 evidence records **5/5 integration tests**, **22 scenarios and 8 finalized transactions** on the disposable `undeployed` network. This is preserved M1.1 evidence, not a new M1.2 run. Current generated-runtime checks report **8 passed and 1 visible TODO/BLOCKED security regression** for credential-wide revocation. The machine-readable ledger evidence is in `packages/midnight-authorization/artifacts/results/local-ledger-evidence.json`.
-- The verified local devnet runs under rootless Podman. Docker Engine is not currently installed independently; restoring it requires interactive sudo access.
-- **Authorization status: PARTIAL — TECHNICAL SECURITY BLOCKER. Public deployment is blocked.** Revocation currently applies to a request-specific reference: reusing a handle for a separately signed request remains eligible. The privacy and credential-wide revocation semantics need a reviewed decision. BlockTek must also approve issuer recovery policy; the single-key model remains `INTERIM — NOT APPROVED BY BLOCKTEK`. OWL ID compatibility remains partial and is not claimed as integrated.
-- No public Midnight network deployment or live 1AM wallet test has been performed. Creator signing keys remain separate from issuer credentials; wallet possession is not treated as proof of legal identity.
+### Manual 1AM wallet check
 
-To run the local package checks from its directory:
+Start the API and UI, open `/app`, create or sign into a publisher account, upload an audio file, and select an installed Midnight wallet. Review the displayed account/network and exact signing intent, then approve the signature in the wallet. The expected current state is `awaiting_midnight`; this version does not submit a chain transaction. The UI will not substitute a mock wallet when none is found. Record the actual wallet name/API version, network, signature scheme, and outcome. Do not enter a seed phrase in AudioTrust.
 
-```bash
-cd packages/midnight-authorization
-pnpm test:runtime
-pnpm test:privacy
-pnpm test:governance
-pnpm demo
-```
+Share the local evidence page at `/verify?id=<registration-id>`. It independently verifies the stored manifest digest and both available signatures in the browser, then compares a supplied file's SHA-256 with the registered digest. The API retains a result-only verification event and does not expose an observed hash for mismatch submissions in the public report.
 
-The proof-backed local devnet command is `pnpm test:integration`; it takes about 16 minutes on the verified host and requires the local services to be running. The demo is a generated-runtime simulation and does not submit a transaction.
+## Product trust boundaries
 
-The main prototype still has no connected database, identity issuer, C2PA service, storage provider, chain registry, watermark provider or detector. Before expanding authorization, verify 1AM compatibility and resolve the credential-wide revocation blocker with proof-backed local Ledger 9 evidence and a versioned BlockTek governance decision.
+- A wallet signature proves control of a key for a particular request; it does not prove legal identity, authorship in a legal sense, or copyright ownership.
+- A BlockTek credential proves only the claims the issuer approved. OWL ID is not integrated.
+- Audio is private by default. Raw audio, credentials, witness data, and private keys must not go on public chains.
+- Audio is never returned by the public evidence API. Verification records the result and timestamp but does not publish the observed hash for a mismatch file.
+
+## Product workflow and status
+
+The implemented local flow is account/publisher onboarding → private audio upload → server-side hash → canonical manifest → publisher and AudioTrust signatures → public evidence and MATCH/MISMATCH comparison. This path has been exercised with the isolated development wallet fixture; the workspace itself offers only discovered real wallets. Midnight authorization submission is still pending, and the full MVP workflow is **not complete**.
+
+Status labels and the next acceptance gates are maintained in [MILESTONE_STATUS.md](docs/roadmap/MILESTONE_STATUS.md).

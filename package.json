@@ -7,7 +7,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test:wallet": "node --test packages/wallet-provider/test/*.test.mjs"
+    "test:wallet": "node --test packages/wallet-provider/test/*.test.mjs",
+    "api:dev": "pnpm --filter @blocktek/audiotrust-api dev",
+    "api:build": "pnpm --filter @blocktek/audiotrust-api build",
+    "api:migrate": "pnpm --filter @blocktek/audiotrust-api migrate",
+    "api:test": "pnpm --filter @blocktek/audiotrust-api test",
+    "api:platform-key:dev": "pnpm --filter @blocktek/audiotrust-api platform-key:dev"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -17,7 +22,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
-    "next": "16.4.3",
+    "next": "16.4.6",
     "react": "^19",
     "react-dom": "^19",
     "shadcn": "^4.11.0",
@@ -29,6 +34,7 @@
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "playwright": "^1.65.1",
     "postcss": "^8.5",
     "tailwindcss": "^4.3.3",
     "typescript": "5.7.3"
