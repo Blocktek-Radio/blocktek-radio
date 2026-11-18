@@ -10,15 +10,27 @@ export class WalletProviderError extends Error {
     super(message, cause === undefined ? undefined : { cause });
     this.name = 'WalletProviderError';
     this.code = code;
+    this.providerCode = cause && typeof cause === 'object' && cause.type === 'DAppConnectorAPIError'
+      ? cause.code : undefined;
   }
 }
 
 const connectorError = (error) => {
-  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
-  if (code === 'Rejected') return new WalletProviderError('user_rejected', 'The wallet request was declined.', error);
-  if (code === 'PermissionRejected') return new WalletProviderError('permission_rejected', 'The wallet has not granted this permission.', error);
-  if (code === 'Disconnected') return new WalletProviderError('disconnected', 'The wallet connection was lost.', error);
-  return new WalletProviderError('provider_error', 'The wallet request failed.', error);
+  const isConnectorError = error && typeof error === 'object' && error.type === 'DAppConnectorAPIError';
+  const providerCode = isConnectorError && typeof error.code === 'string' ? error.code : undefined;
+  const reason = isConnectorError && typeof error.reason === 'string' ? error.reason : undefined;
+  const code = providerCode === 'Rejected' ? 'user_rejected'
+    : providerCode === 'PermissionRejected' ? 'permission_rejected'
+    : providerCode === 'Disconnected' ? 'disconnected'
+    : providerCode === 'InvalidRequest' ? 'invalid_request'
+    : providerCode === 'InsufficientFunds' ? 'insufficient_funds'
+    : providerCode === 'InternalError' ? 'connector_internal_error'
+    : 'provider_error';
+  const fallback = code === 'user_rejected' ? 'The wallet request was declined.'
+    : code === 'permission_rejected' ? 'The wallet denied this permission.'
+    : code === 'disconnected' ? 'The wallet connection was lost.'
+    : 'The wallet connector returned an error.';
+  return new WalletProviderError(code, reason || fallback, error);
 };
 
 const validWallet = (wallet) => wallet && typeof wallet.name === 'string' &&
@@ -39,13 +51,16 @@ export class MidnightConnectorProvider {
     this.networkId = networkId;
     this.connected = null;
     this.account = null;
+    this.actualNetworkId = null;
+    this.connectionTimestamp = null;
     this.listeners = new Set();
   }
 
   static discover() { return discoverMidnightWallets(); }
   get providerName() { return this.initialApi.name; }
+  get connectionEstablished() { return Boolean(this.connected); }
   get capabilities() {
-    return { connect: true, disconnect: true, getAccount: true, getNetwork: true,
+    return { connect: true, disconnect: false, getAccount: true, getNetwork: true,
       accountChanges: false, networkChanges: false,
       signMessage: Boolean(this.connected && typeof this.connected.signData === 'function') };
   }
@@ -53,19 +68,28 @@ export class MidnightConnectorProvider {
   async connect() {
     try {
       const api = await this.initialApi.connect(this.networkId);
+      // Retain a successful connector session even when state inspection or the
+      // target-network check fails: connection and signing are separate abilities.
+      this.connected = api;
       const [configuration, status, address] = await Promise.all([
         api.getConfiguration(), api.getConnectionStatus(), api.getUnshieldedAddress(),
       ]);
-      if (!configuration || configuration.networkId !== this.networkId || status?.status !== 'connected' || status.networkId !== this.networkId) {
-        throw new WalletProviderError('network_mismatch', `Wallet must be connected to ${this.networkId}.`);
+      this.actualNetworkId = typeof configuration?.networkId === 'string' ? configuration.networkId
+        : typeof status?.networkId === 'string' ? status.networkId : null;
+      if (status?.status !== 'connected') {
+        throw new WalletProviderError('connection_not_confirmed', 'The wallet returned a connector, but its connection status is not connected.');
       }
       if (!address || typeof address.unshieldedAddress !== 'string' || address.unshieldedAddress.length < 8) {
         throw new WalletProviderError('malformed_response', 'Wallet returned a malformed unshielded account.');
       }
-      this.connected = api;
       this.account = address.unshieldedAddress;
-      this.emit({ type: 'connected', account: this.account, networkId: this.networkId });
-      return { account: this.account, networkId: this.networkId };
+      this.connectionTimestamp = Date.now();
+      if (configuration?.networkId !== this.networkId || status.networkId !== this.networkId) {
+        this.emit({ type: 'network_mismatch', account: this.account, networkId: this.actualNetworkId });
+        throw new WalletProviderError('network_mismatch', `Wallet is connected to ${this.actualNetworkId ?? 'an unknown network'}; AudioTrust requires ${this.networkId}.`);
+      }
+      this.emit({ type: 'connected', account: this.account, networkId: this.actualNetworkId });
+      return { account: this.account, networkId: this.actualNetworkId, connectionTimestamp: this.connectionTimestamp };
     } catch (error) {
       if (error instanceof WalletProviderError) throw error;
       throw connectorError(error);
@@ -76,6 +100,8 @@ export class MidnightConnectorProvider {
     const previousAccount = this.account;
     this.connected = null;
     this.account = null;
+    this.actualNetworkId = null;
+    this.connectionTimestamp = null;
     this.emit({ type: 'disconnected', previousAccount });
   }
 
@@ -95,8 +121,12 @@ export class MidnightConnectorProvider {
     this.assertConnected();
     try {
       const [configuration, status] = await Promise.all([this.connected.getConfiguration(), this.connected.getConnectionStatus()]);
-      if (configuration?.networkId !== this.networkId || status?.status !== 'connected' || status.networkId !== this.networkId) {
-        await this.disconnect();
+      if (status?.status !== 'connected') {
+        throw new WalletProviderError('disconnected', 'The wallet connection is no longer active.');
+      }
+      this.actualNetworkId = typeof configuration?.networkId === 'string' ? configuration.networkId : status.networkId;
+      if (configuration?.networkId !== this.networkId || status.networkId !== this.networkId) {
+        this.emit({ type: 'network_mismatch', account: this.account, networkId: this.actualNetworkId });
         throw new WalletProviderError('network_mismatch', `Wallet changed network; expected ${this.networkId}.`);
       }
       return configuration.networkId;

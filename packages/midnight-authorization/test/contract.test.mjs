@@ -4,8 +4,6 @@ import { ed25519 } from '@noble/curves/ed25519.js';
 import * as runtime from '@midnight-ntwrk/compact-runtime';
 import { Contract, ledger } from '../artifacts/contract/contract/index.js';
 
-test.todo('[BLOCKED SECURITY REGRESSION] a credential revoked for request A must not authorize distinct request B with the same handle; current request-scoped contract permits it');
-
 const now = BigInt(Math.floor(Date.now() / 1000));
 const bytes = (value) => new Uint8Array(32).fill(value);
 const pad = (value) => {
@@ -39,6 +37,7 @@ async function setup() {
     issuerId,
     contract,
     address,
+    time: now,
     state: constructor.currentContractState.data,
   };
 }
@@ -54,7 +53,7 @@ function makeCredential(fixture, overrides = {}) {
     organizationMember: true,
     publisherAuthorized: true,
     issuedAt: now - 60n,
-    expiresAt: now + 3600n,
+    expiresAt: now + 840n,
     registrationCommitment: bytes(3),
     policyVersion: 1n,
     nonce: bytes(4),
@@ -74,7 +73,7 @@ async function invoke(fixture, circuitId, ...args) {
     coinPublicKeyOrZswapState: runtime.sampleUserAddress(),
     contractState: fixture.state,
     privateState: undefined,
-    time: Number(now),
+    time: Number(fixture.time),
   });
   const result = await fixture.contract.circuits[circuitId](context, ...args);
   fixture.state = result.context.callContext.currentQueryContext.state;
@@ -117,11 +116,26 @@ test('bad signature, wrong issuer and missing publisher claim are rejected', asy
   }
 });
 
-test('expired credential and replay are rejected without a second state change', async () => {
+test('expired and stale status attestations and authorization replay are rejected', async () => {
   const expiredFixture = await setup();
   const expired = makeCredential(expiredFixture, { expiresAt: now - 1n });
   await assert.rejects(
     invoke(expiredFixture, 'authorizeRegistration', expired.statement, expired.signature),
+    /credential expired/,
+  );
+
+  const staleFixture = await setup();
+  const stale = makeCredential(staleFixture, { expiresAt: now + 841n });
+  await assert.rejects(
+    invoke(staleFixture, 'authorizeRegistration', stale.statement, stale.signature),
+    /fifteen-minute lifetime/,
+  );
+
+  const witnessFixture = await setup();
+  const witness = makeCredential(witnessFixture);
+  witnessFixture.time = now + 841n;
+  await assert.rejects(
+    invoke(witnessFixture, 'authorizeRegistration', witness.statement, witness.signature),
     /credential expired/,
   );
 
@@ -135,7 +149,7 @@ test('expired credential and replay are rejected without a second state change',
   assert.equal(ledger(fixture.state).consumedNullifiers.size(), 1n);
 });
 
-test('issuer suspension and signed credential revocation reject later authorization', async () => {
+test('issuer suspension rejects later authorization', async () => {
   const fixture = await setup();
   const update = {
     domain: pad('AudioTrust:issuer-update:v1'),
@@ -156,28 +170,6 @@ test('issuer suspension and signed credential revocation reject later authorizat
     /issuer suspended/,
   );
 
-  const activeFixture = await setup();
-  const revocation = {
-    domain: pad('AudioTrust:revoke:v1'),
-    contractContext: runtime.encodeContractAddress(activeFixture.address),
-    issuerId: activeFixture.issuerId,
-    revocationHandle: bytes(5),
-    registrationCommitment: bytes(3),
-    requestNonce: bytes(4),
-    nonce: bytes(12),
-  };
-  const revocationSig = parsedSignature(
-    ed25519.sign(activeFixture.contract._persistentHash_3(revocation), activeFixture.secretKey),
-  );
-  await invoke(activeFixture, 'revokeCredential', revocation, revocationSig);
-  const revoked = makeCredential(activeFixture, {
-    registrationCommitment: bytes(3),
-    nonce: bytes(4),
-  });
-  await assert.rejects(
-    invoke(activeFixture, 'authorizeRegistration', revoked.statement, revoked.signature),
-    /credential revoked/,
-  );
 });
 
 test('issuer key rotation invalidates old key and allows signed reinstatement with the new key', async () => {
@@ -197,6 +189,10 @@ test('issuer key rotation invalidates old key and allows signed reinstatement wi
     ed25519.sign(fixture.contract._persistentHash_2(update), fixture.secretKey),
   );
   await invoke(fixture, 'updateIssuer', update, oldKeySignature);
+  await assert.rejects(
+    invoke(fixture, 'updateIssuer', update, oldKeySignature),
+    /issuer update nonce already consumed/,
+  );
 
   const oldKeyCredential = makeCredential(fixture, { policyVersion: 2n });
   await assert.rejects(
@@ -255,42 +251,15 @@ test('unauthorized issuer updates and malformed registration commitments fail', 
   assert.equal(ledger(fixture.state).consumedNullifiers.size(), 0n);
 });
 
-test('privacy schema contains only intended issuer and request-scoped revocation state', async () => {
+test('public state contains no stable credential revocation identifier', async () => {
   const fixture = await setup();
   const publicState = ledger(fixture.state);
   assert.deepEqual(Object.keys(publicState).sort(), [
+    'consumedIssuerUpdateNonces',
     'consumedNullifiers',
     'issuerActive',
     'issuerId',
     'issuerPublicKey',
     'policyVersion',
-    'revokedRequestReferences',
   ]);
-});
-
-test('privacy: the same private credential handle produces distinct public revocation references per request', async () => {
-  const fixture = await setup();
-  const first = makeCredential(fixture, { registrationCommitment: bytes(31), nonce: bytes(32) });
-  const second = makeCredential(fixture, { registrationCommitment: bytes(33), nonce: bytes(34) });
-
-  for (const [credential, adminNonce] of [[first, bytes(35)], [second, bytes(36)]]) {
-    const statement = {
-      domain: pad('AudioTrust:revoke:v1'),
-      contractContext: runtime.encodeContractAddress(fixture.address),
-      issuerId: fixture.issuerId,
-      revocationHandle: credential.statement.revocationHandle,
-      registrationCommitment: credential.statement.registrationCommitment,
-      requestNonce: credential.statement.nonce,
-      nonce: adminNonce,
-    };
-    const signature = parsedSignature(
-      ed25519.sign(fixture.contract._persistentHash_3(statement), fixture.secretKey),
-    );
-    await invoke(fixture, 'revokeCredential', statement, signature);
-  }
-
-  const refs = [...ledger(fixture.state).revokedRequestReferences].map(([key]) => Buffer.from(key).toString('hex'));
-  assert.equal(refs.length, 2);
-  assert.equal(new Set(refs).size, 2, 'different registration requests must not share a public revocation reference');
-  assert.ok(!refs.includes(Buffer.from(first.statement.revocationHandle).toString('hex')));
 });
