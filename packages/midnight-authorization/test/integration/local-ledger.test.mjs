@@ -27,7 +27,7 @@ const NETWORK_ID = 'undeployed';
 const TEST_SEED = '0000000000000000000000000000000000000000000000000000000000000001';
 const issuerSecret = new Uint8Array(32).fill(7);
 const issuerId = new Uint8Array(32).fill(1);
-const now = BigInt(Math.floor(Date.now() / 1000));
+const chainTime = () => BigInt(Math.floor(Date.now() / 1000));
 const pad = (s) => {
   const b = new TextEncoder().encode(s);
   const out = new Uint8Array(32);
@@ -148,6 +148,7 @@ function padded(text, length) {
 }
 
 function credential(overrides = {}, signingSecret = currentIssuerSecret) {
+  const issuedAt = chainTime() - 5n;
   const statement = {
     domain: pad('AudioTrust:credential:v1'),
     contractContext: runtime.encodeContractAddress(contractAddress),
@@ -157,8 +158,8 @@ function credential(overrides = {}, signingSecret = currentIssuerSecret) {
     individualVerified: true,
     organizationMember: true,
     publisherAuthorized: true,
-    issuedAt: now - 60n,
-    expiresAt: now + 3600n,
+    issuedAt,
+    expiresAt: issuedAt + 900n,
     registrationCommitment: bytes(3),
     policyVersion: currentPolicyVersion,
     nonce: bytes(4),
@@ -187,6 +188,7 @@ async function expectCircuitRejection(name, circuitId, args, reason) {
   if (reason) expect(String(error)).toContain(reason);
   const after = await readLedger();
   expect(after.consumedNullifiers.size()).toBe(before.consumedNullifiers.size());
+  expect(after.consumedIssuerUpdateNonces.size()).toBe(before.consumedIssuerUpdateNonces.size());
   record(name, 'REJECTED_BY_CIRCUIT', { reason: reason || 'malformed input rejected before ledger mutation', resultingState: 'consumed nullifier count unchanged' });
 }
 
@@ -267,13 +269,16 @@ describe('AudioTrustPublisherAuthorization on local Ledger 9', () => {
   });
 
   it('rejects invalid claims, issuer, signature, expiry, context, and malformed commitments', async () => {
+    const current = chainTime();
+    const longLeaseStart = current - 5n;
     const cases = [
       ['wrong issuer', { issuerId: bytes(9) }, null, 'wrong issuer'],
       ['missing identity claim', { individualVerified: false }, null, 'individual identity claim required'],
       ['missing organization claim', { organizationMember: false }, null, 'organization membership claim required'],
       ['missing publisher claim', { publisherAuthorized: false }, null, 'publisher authorization claim required'],
-      ['expired credential', { expiresAt: now - 1n }, null, 'credential expired'],
-      ['not-yet-valid credential', { issuedAt: now + 600n }, null, 'credential is not yet valid'],
+      ['expired credential', { issuedAt: current - 900n, expiresAt: current - 1n }, null, 'credential expired'],
+      ['status attestation lifetime over fifteen minutes', { issuedAt: longLeaseStart, expiresAt: longLeaseStart + 901n }, null, 'fifteen-minute lifetime'],
+      ['not-yet-valid credential', { issuedAt: current + 600n }, null, 'credential is not yet valid'],
       ['invalid request binding', { contractContext: bytes(17) }, null, 'wrong contract context'],
     ];
     for (const [name, overrides, _unused, reason] of cases) {
@@ -287,7 +292,7 @@ describe('AudioTrustPublisherAuthorization on local Ledger 9', () => {
     await expectCircuitRejection('malformed commitment', 'authorizeRegistration', [malformed.statement, malformed.signature], '');
   });
 
-  it('accepts an independent request, revokes its credential, and rejects it afterward', async () => {
+  it('accepts a fresh request lease without publishing a stable credential handle', async () => {
     const next = credential({ registrationCommitment: bytes(35), nonce: bytes(36), revocationHandle: bytes(37) });
     const accepted = await submitCallTx(providers, {
       compiledContract: compiled,
@@ -297,31 +302,6 @@ describe('AudioTrustPublisherAuthorization on local Ledger 9', () => {
       args: [next.statement, next.signature],
     });
     record('independent registration request', 'ACCEPTED', { ...transactionEvidence(accepted, 'authorization'), resultingState: 'two request nullifiers' });
-
-    const revocation = {
-      domain: pad('AudioTrust:revoke:v1'),
-      contractContext: runtime.encodeContractAddress(contractAddress),
-      issuerId,
-      revocationHandle: next.statement.revocationHandle,
-      registrationCommitment: next.statement.registrationCommitment,
-      requestNonce: next.statement.nonce,
-      nonce: bytes(38),
-    };
-    const revokeSig = compactSignature(ed25519.sign(contractForHashing._persistentHash_3(revocation), currentIssuerSecret));
-    const revokeTx = await submitCallTx(providers, {
-      compiledContract: compiled,
-      contractAddress,
-      privateStateId: 'AudioTrustLocalIntegration',
-      circuitId: 'revokeCredential',
-      args: [revocation, revokeSig],
-    });
-    const revocationEvidence = transactionEvidence(revokeTx, 'revocation');
-    const revocationReference = [...(await readLedger()).revokedRequestReferences][0][0];
-    const revocationEvent = await expectMiscEvent(revokeTx, revocationReference, 'credential revocation');
-    expect(revocationEvent.payload.replace(/^0x/i, '').toLowerCase()).toBe(padded('AudioTrust:credential-revoked:v1', 256).toString('hex'));
-    expect((await readLedger()).revokedRequestReferences.size()).toBe(1n);
-    record('credential revocation', 'ACCEPTED', { ...revocationEvidence, event: revocationEvent, resultingState: 'one request-scoped revocation entry' });
-    await expectCircuitRejection('authorization after revocation', 'authorizeRegistration', [next.statement, next.signature], 'credential revoked');
 
     const sameHandleDifferentRequest = credential({
       registrationCommitment: bytes(45),
@@ -335,9 +315,9 @@ describe('AudioTrustPublisherAuthorization on local Ledger 9', () => {
       circuitId: 'authorizeRegistration',
       args: [sameHandleDifferentRequest.statement, sameHandleDifferentRequest.signature],
     });
-    record('same credential handle with a different request remains unlinked and eligible', 'ACCEPTED', {
+    record('freshly issuer-attested distinct registration with the same private handle', 'ACCEPTED', {
       ...transactionEvidence(scoped, 'authorization'),
-      resultingState: 'request-scoped revocation does not revoke a distinct request',
+      resultingState: 'no credential handle or stable revocation identifier is public; operational revocation must stop new attestations, and previous attestations expire within fifteen minutes',
     });
   });
 
@@ -355,6 +335,8 @@ describe('AudioTrustPublisherAuthorization on local Ledger 9', () => {
 
     const suspended = { ...unauthorized, nextActive: false, nonce: bytes(40) };
     const suspendTx = await issuerUpdate(suspended);
+    const replaySignature = compactSignature(ed25519.sign(contractForHashing._persistentHash_2(suspended), currentIssuerSecret));
+    await expectCircuitRejection('replayed issuer update nonce', 'updateIssuer', [suspended, replaySignature], 'issuer update nonce already consumed');
     const issuerEvent = await expectMiscEvent(suspendTx, issuerId, 'issuer update');
     expect(issuerEvent.payload.replace(/^0x/i, '').toLowerCase()).toBe(padded('AudioTrust:issuer-update:v1', 256).toString('hex'));
     record('issuer suspension', 'ACCEPTED', { ...transactionEvidence(suspendTx, 'issuer-update'), event: issuerEvent });

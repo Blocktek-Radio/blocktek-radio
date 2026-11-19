@@ -6,7 +6,20 @@ import type { CreatorIntent } from '@/packages/wallet-provider/src/index.js'
 import type { InitialAPI } from '@midnightntwrk/dapp-connector-api'
 
 const API = `${process.env.NEXT_PUBLIC_AUDIOTRUST_API_URL || 'http://localhost:4100'}/api/v1`
-const NETWORK = process.env.NEXT_PUBLIC_MIDNIGHT_NETWORK || 'undeployed'
+const NETWORK = process.env.NEXT_PUBLIC_MIDNIGHT_NETWORK || 'preprod'
+type WalletStatus = 'disconnected' | 'discovering' | 'connecting' | 'connected' | 'signing' | 'signature_verified' | 'error' | 'network_mismatch' | 'account_changed'
+type WalletSession = {
+  status: WalletStatus
+  selectedProvider: InitialAPI | null
+  connector: MidnightConnectorProvider | null
+  account: string
+  networkId: string | null
+  connectedAt: number | null
+  signingAvailable: boolean
+  lastSignatureVerifiedAt: number | null
+  error: { code: string; providerCode?: string; message: string } | null
+}
+const emptyWalletSession: WalletSession = { status: 'disconnected', selectedProvider: null, connector: null, account: '', networkId: null, connectedAt: null, signingAvailable: false, lastSignatureVerifiedAt: null, error: null }
 
 type Profile = { user: { id: string; email: string; emailVerified: boolean }; publishers: Array<{ id: string; name: string; status: string; assuranceLevel: string; role: string }> }
 type Release = { registrationId: string; status: string; audio: { sha256: string; size: number; mediaType: string } }
@@ -27,8 +40,7 @@ export default function AudioTrustRegistrationWorkspace() {
   const [registerMode, setRegisterMode] = useState(true)
   const [wallets, setWallets] = useState<InitialAPI[]>([])
   const [walletIndex, setWalletIndex] = useState('')
-  const [wallet, setWallet] = useState<MidnightConnectorProvider | null>(null)
-  const [account, setAccount] = useState('')
+  const [walletSession, setWalletSession] = useState<WalletSession>(emptyWalletSession)
   const [file, setFile] = useState<File | null>(null)
   const [title, setTitle] = useState('')
   const [release, setRelease] = useState<Release | null>(null)
@@ -38,7 +50,36 @@ export default function AudioTrustRegistrationWorkspace() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const stopListening = useRef<(() => void) | null>(null)
+  const wallet = walletSession.connector
+  const account = walletSession.account
+  const walletStatus = walletSession.status
   const intentJson = useMemo(() => intentResult ? canonicalizeIntent(intentResult.intent) : '', [intentResult])
+
+  function saveWalletError(cause: unknown) {
+    const error = cause as Error & { code?: string; providerCode?: string }
+    const code = error.code || 'wallet_error'
+    const message = error.message || 'Wallet request failed.'
+    setWalletSession(session => ({ ...session, error: { code, providerCode: error.providerCode, message } }))
+    setError(`${error.code ? `[${error.code}${error.providerCode ? `/${error.providerCode}` : ''}] ` : ''}${message}`)
+  }
+
+  function listenToWallet(provider: MidnightConnectorProvider) {
+    stopListening.current?.()
+    stopListening.current = provider.onChange((event) => {
+      if (event.type === 'account_changed') {
+        setWalletSession(session => ({ ...session, account: event.account, status: 'account_changed', lastSignatureVerifiedAt: null, error: null }))
+        setIntentResult(null); setResult(null)
+      }
+      if (event.type === 'network_mismatch') {
+        setWalletSession(session => ({ ...session, account: event.account ?? session.account, networkId: event.networkId, status: 'network_mismatch', error: { code: 'network_mismatch', message: `Wallet network does not match ${NETWORK}.` } }))
+        setIntentResult(null); setResult(null)
+      }
+      if (event.type === 'disconnected') {
+        setWalletSession(emptyWalletSession)
+        setIntentResult(null); setResult(null)
+      }
+    })
+  }
 
   async function loadProfile() {
     const response = await fetch(`${API}/auth/me`, { credentials: 'include' })
@@ -55,7 +96,9 @@ export default function AudioTrustRegistrationWorkspace() {
   }
 
   useEffect(() => {
+    setWalletSession(session => ({ ...session, status: 'discovering' }))
     setWallets(discoverMidnightWallets())
+    setWalletSession(session => ({ ...session, status: 'disconnected' }))
     void loadProfile().catch(() => {})
     return () => { stopListening.current?.() }
   }, [])
@@ -76,30 +119,41 @@ export default function AudioTrustRegistrationWorkspace() {
   async function signOut() {
     await fetch(`${API}/auth/logout`, { method: 'POST', credentials: 'include' })
     stopListening.current?.(); stopListening.current = null
-    setProfile(null); setWallet(null); setAccount(''); setRelease(null); setIntentResult(null); setReleases([])
+    setProfile(null); setWalletSession(emptyWalletSession); setRelease(null); setIntentResult(null); setReleases([])
   }
 
   async function connectWallet() {
     setBusy(true); setError('')
+    setWalletSession({ ...emptyWalletSession, status: 'connecting' })
+    let provider: MidnightConnectorProvider | null = null
     try {
       const selected = wallets[Number(walletIndex)]
       if (!selected) throw new Error('Choose an installed Midnight wallet first.')
-      const provider = new MidnightConnectorProvider(selected, NETWORK)
+      setWalletSession(session => ({ ...session, selectedProvider: selected, status: 'connecting', error: null }))
+      provider = new MidnightConnectorProvider(selected, NETWORK)
       const connected = await provider.connect()
-      stopListening.current?.()
-      stopListening.current = provider.onChange((event) => {
-        if (event.type === 'account_changed') { setAccount(event.account); setIntentResult(null); setResult(null) }
-        if (event.type === 'disconnected') { setWallet(null); setAccount(''); setIntentResult(null); setResult(null) }
-      })
-      setWallet(provider); setAccount(connected.account)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Wallet connection failed.') }
+      listenToWallet(provider)
+      setWalletSession({ status: 'connected', selectedProvider: selected, connector: provider, account: connected.account, networkId: connected.networkId, connectedAt: connected.connectionTimestamp, signingAvailable: provider.capabilities.signMessage, lastSignatureVerifiedAt: null, error: null })
+    } catch (cause) {
+      // A connector may have granted access before a subsequent account/network
+      // read failed. Keep that session available for diagnosis and local clearing.
+      if (provider?.connectionEstablished) {
+        listenToWallet(provider)
+        const error = cause as Error & { code?: string; providerCode?: string }
+        setWalletSession({ status: provider.actualNetworkId && provider.actualNetworkId !== NETWORK ? 'network_mismatch' : 'error', selectedProvider: provider.initialApi, connector: provider, account: provider.account ?? '', networkId: provider.actualNetworkId, connectedAt: provider.connectionTimestamp, signingAvailable: provider.capabilities.signMessage, lastSignatureVerifiedAt: null, error: { code: error.code || 'wallet_error', providerCode: error.providerCode, message: error.message || 'Wallet connection failed.' } })
+      } else {
+        const error = cause as Error & { code?: string; providerCode?: string }
+        setWalletSession(session => ({ ...session, status: 'error', error: { code: error.code || 'wallet_error', providerCode: error.providerCode, message: error.message || 'Wallet connection failed.' } }))
+      }
+      saveWalletError(cause)
+    }
     finally { setBusy(false) }
   }
 
   async function disconnectWallet() {
     stopListening.current?.(); stopListening.current = null
     await wallet?.disconnect()
-    setWallet(null); setAccount(''); setIntentResult(null); setResult(null)
+    setWalletSession(emptyWalletSession); setIntentResult(null); setResult(null)
   }
 
   async function uploadRelease() {
@@ -129,7 +183,7 @@ export default function AudioTrustRegistrationWorkspace() {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ walletAddress: currentAccount }),
       })
       setIntentResult(await responseJson(response) as IntentResponse)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not prepare a signing intent.') }
+    } catch (cause) { saveWalletError(cause instanceof Error ? cause : new Error('Could not prepare a signing intent.')) }
     finally { setBusy(false) }
   }
 
@@ -140,15 +194,20 @@ export default function AudioTrustRegistrationWorkspace() {
       const currentNetwork = await wallet.getNetwork()
       const currentAccount = await wallet.getAccount()
       if (currentNetwork !== intentResult.intent.networkId || currentAccount !== intentResult.intent.creatorAccount) throw new Error('Wallet account or network changed. Prepare a fresh intent.')
+      setWalletSession(session => ({ ...session, status: 'signing', error: null }))
       const signature = await wallet.signMessage(intentJson)
       verifyCreatorSignature(intentResult.intent, signature, { expectedNetwork: NETWORK, expectedAccount: currentAccount })
+      setWalletSession(session => ({ ...session, status: 'signature_verified', lastSignatureVerifiedAt: Date.now(), error: null }))
       const response = await fetch(`${API}/audio/${release.registrationId}/signature`, {
         method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ intent: intentResult.intent, signature }),
       })
       const signed = await responseJson(response)
       setResult(signed)
       if (profile?.publishers[0]) await loadReleases(profile.publishers[0].id)
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Signing or verification failed.') }
+    } catch (cause) {
+      setWalletSession(session => ({ ...session, status: wallet?.actualNetworkId !== NETWORK ? 'network_mismatch' : 'error' }))
+      saveWalletError(cause)
+    }
     finally { setBusy(false) }
   }
 
@@ -176,15 +235,18 @@ export default function AudioTrustRegistrationWorkspace() {
       <div style={{ display: 'grid', gap: 12, maxWidth: 650, marginTop: 24 }}>
         <h4 style={{ margin: '8px 0 0' }}>Publisher wallet approval</h4>
         {!wallet ? <>
+          <small>Wallet status: {walletStatus}</small>
           <label>Installed Midnight wallet<select value={walletIndex} onChange={event => setWalletIndex(event.target.value)}><option value="">Choose an installed wallet</option>{wallets.map((item, index) => <option value={index} key={`${item.name}-${index}`}>{item.name} · connector {item.apiVersion}</option>)}</select></label>
           <button className="button ghost" disabled={busy || !walletIndex} onClick={() => void connectWallet()}>Connect real wallet</button>
           {!wallets.length && <small>No compatible Midnight wallet was detected. The uploaded release remains saved; no mock wallet is substituted.</small>}
         </> : <>
-          <div className="notice">Connected: {wallet.providerName}<br/>Account: {account}<br/>Network: {NETWORK}</div>
-          <button className="button ghost" onClick={() => void disconnectWallet()}>Disconnect wallet</button>
-          <button className="button ghost" disabled={busy || !release} onClick={() => void prepareIntent()}>Prepare exact release intent</button>
+          <div className="notice">Wallet status: <b>{walletStatus}</b><br/>Connected: {wallet.providerName}<br/>Account: {account || 'unavailable'}<br/>Network: {walletSession.networkId ?? 'unknown'} (required: {NETWORK})<br/>Signing: {walletSession.signingAvailable ? 'available' : 'not available'}<br/>Connected at: {walletSession.connectedAt ? new Date(walletSession.connectedAt).toLocaleString() : 'not confirmed'}<br/>Last signature verification: {walletSession.lastSignatureVerifiedAt ? new Date(walletSession.lastSignatureVerifiedAt).toLocaleString() : 'none'}</div>
+          <button className="button ghost" onClick={() => void disconnectWallet()}>Clear local wallet session</button>
+          <button className="button ghost" disabled={busy || !release || walletStatus === 'network_mismatch' || !walletSession.signingAvailable} onClick={() => void prepareIntent()}>Prepare exact release intent</button>
+          {!walletSession.signingAvailable && <small>The wallet connection is retained, but this connector does not currently expose signData. No signing request was sent.</small>}
+          {walletSession.error && <small>Wallet diagnostic [{walletSession.error.code}{walletSession.error.providerCode ? `/${walletSession.error.providerCode}` : ''}]: {walletSession.error.message}</small>}
         </>}
-        {intentResult && <><p>Review the release manifest and exact wallet request. No transaction or funds transfer is requested.</p><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--warm)', padding: 14, fontSize: 12 }}>{JSON.stringify(intentResult.manifest, null, 2)}{'\n\n'}{intentJson}</pre><button className="button primary" disabled={busy} onClick={() => void approveRelease()}>Sign with connected wallet</button></>}
+        {intentResult && <><p>Review the release manifest and exact wallet request. No transaction or funds transfer is requested.</p><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', background: 'var(--warm)', padding: 14, fontSize: 12 }}>{JSON.stringify(intentResult.manifest, null, 2)}{'\n\n'}{intentJson}</pre><button className="button primary" disabled={busy || !wallet?.capabilities.signMessage || walletStatus === 'network_mismatch'} onClick={() => void approveRelease()}>Sign with connected wallet</button></>}
         {result && <div className="notice"><b>Publisher and platform signatures verified.</b><br/>Registration status: awaiting Midnight authorization.<br/>Wallet key-to-address binding remains unverified; no Midnight transaction has been submitted.<br/><a href={`/verify?id=${release?.registrationId}`}>Open public verification report</a></div>}
       </div>
       <div style={{ marginTop: 28 }}><h4>Release history</h4>{releases.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Title</th><th>Exact hash</th><th>Status</th><th></th></tr></thead><tbody>{releases.map(item => <tr key={String(item.id)}><td>{String(item.title)}</td><td><code>{String(item.sha256).slice(0, 16)}…</code></td><td>{String(item.status)}</td><td><a href={`/verify?id=${String(item.id)}`}>Evidence</a></td></tr>)}</tbody></table></div> : <p>No releases yet.</p>}</div>

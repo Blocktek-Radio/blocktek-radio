@@ -3,11 +3,12 @@ import type { InitialAPI, Signature } from '@midnightntwrk/dapp-connector-api';
 export const PROTOCOL_ID: 'audiotrust.creator-registration';
 export const PROTOCOL_VERSION: 1;
 export const SIGNING_PREFIX: 'midnight_signed_message:';
-export class WalletProviderError extends Error { code: string }
+export class WalletProviderError extends Error { code: string; providerCode?: string }
 export type WalletEvent =
   | { type: 'connected'; account: string; networkId: string }
   | { type: 'disconnected'; previousAccount: string | null }
-  | { type: 'account_changed'; account: string; previousAccount: string | null };
+  | { type: 'account_changed'; account: string; previousAccount: string | null }
+  | { type: 'network_mismatch'; account: string | null; networkId: string | null };
 export type ProviderCapabilities = {
   connect: boolean; disconnect: boolean; getAccount: boolean; getNetwork: boolean;
   accountChanges: boolean; networkChanges: boolean; signMessage: boolean;
@@ -15,9 +16,14 @@ export type ProviderCapabilities = {
 export function discoverMidnightWallets(): InitialAPI[];
 export class MidnightConnectorProvider {
   constructor(initialApi: InitialAPI, networkId: string);
+  readonly initialApi: InitialAPI;
   readonly providerName: string;
+  readonly connectionEstablished: boolean;
+  readonly connectionTimestamp: number | null;
+  readonly actualNetworkId: string | null;
+  readonly account: string | null;
   readonly capabilities: ProviderCapabilities;
-  connect(): Promise<{ account: string; networkId: string }>;
+  connect(): Promise<{ account: string; networkId: string; connectionTimestamp: number }>;
   disconnect(): Promise<void>;
   getAccount(): Promise<string>;
   getNetwork(): Promise<string>;

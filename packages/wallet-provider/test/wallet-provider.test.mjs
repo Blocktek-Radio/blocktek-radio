@@ -86,12 +86,15 @@ test('connector validates reported network and reports user rejection', async ()
     getUnshieldedAddress: async () => ({ unshieldedAddress: 'mn_addr_test_creator_0001' }),
   }) };
   const provider = new MidnightConnectorProvider(base, 'undeployed');
-  assert.deepEqual(await provider.connect(), { account: 'mn_addr_test_creator_0001', networkId: 'undeployed' });
+  const connected = await provider.connect();
+  assert.deepEqual({ account: connected.account, networkId: connected.networkId }, { account: 'mn_addr_test_creator_0001', networkId: 'undeployed' });
   await provider.disconnect();
   const mismatch = new MidnightConnectorProvider(base, 'preview');
   await assert.rejects(mismatch.connect(), (error) => error.code === 'network_mismatch');
-  const denied = new MidnightConnectorProvider({ ...base, connect: async () => { throw { code: 'Rejected' }; } }, 'undeployed');
-  await assert.rejects(denied.connect(), (error) => error.code === 'user_rejected');
+  assert.equal(mismatch.account, 'mn_addr_test_creator_0001', 'successful connector session is retained for diagnosis');
+  assert.equal(mismatch.capabilities.signMessage, false, 'network failure does not manufacture signing capability');
+  const denied = new MidnightConnectorProvider({ ...base, connect: async () => { throw { type: 'DAppConnectorAPIError', code: 'Rejected', reason: 'user declined' }; } }, 'undeployed');
+  await assert.rejects(denied.connect(), (error) => error.code === 'user_rejected' && error.providerCode === 'Rejected' && error.message === 'user declined');
 });
 
 test('connector detects account and network changes on state refresh', async () => {
@@ -106,6 +109,20 @@ test('connector detects account and network changes on state refresh', async () 
   assert.equal(await provider.getAccount(), address);
   network = 'preview';
   await assert.rejects(provider.getNetwork(), (error) => error.code === 'network_mismatch');
+});
+
+test('connector session survives a post-connect configuration read error', async () => {
+  const connectorError = { type: 'DAppConnectorAPIError', code: 'InternalError', reason: 'configuration is temporarily unavailable' };
+  const provider = new MidnightConnectorProvider({ name: 'Retained session', apiVersion: '4.1.0', connect: async () => ({
+    getConfiguration: async () => { throw connectorError; },
+    getConnectionStatus: async () => ({ status: 'connected', networkId: 'preprod' }),
+    getUnshieldedAddress: async () => ({ unshieldedAddress: 'mn_addr_test_creator_0001' }),
+    signData: async () => ({ data: 'message', signature: '00', verifyingKey: '00' }),
+  }) }, 'preprod');
+  await assert.rejects(provider.connect(), (error) => error.code === 'connector_internal_error' && error.providerCode === 'InternalError' && error.message === connectorError.reason);
+  assert.equal(provider.connectionEstablished, true);
+  assert.equal(provider.account, null);
+  assert.equal(provider.capabilities.signMessage, true, 'connection and signing capabilities remain separate');
 });
 
 test('provider discovery is safe when no browser connector is available', () => {
@@ -129,12 +146,12 @@ test('malformed account/signature responses and signing rejection fail closed', 
   }) }, 'undeployed');
   await assert.rejects(malformed.connect(), (error) => error.code === 'malformed_response');
 
-  for (const signData of [async () => ({ data: 'wrong', signature: '00', verifyingKey: '00' }), async () => { throw { code: 'Rejected' }; }]) {
+  for (const signData of [async () => ({ data: 'wrong', signature: '00', verifyingKey: '00' }), async () => { throw { type: 'DAppConnectorAPIError', code: 'Rejected', reason: 'sign request declined' }; }]) {
     const provider = new MidnightConnectorProvider({ name: 'Signer', apiVersion: '4.1.0', connect: async () => ({
       getConfiguration: async () => ({ networkId: 'undeployed' }), getConnectionStatus: async () => ({ status: 'connected', networkId: 'undeployed' }),
       getUnshieldedAddress: async () => ({ unshieldedAddress: 'mn_addr_test_creator_0001' }), signData,
     }) }, 'undeployed');
     await provider.connect();
-    await assert.rejects(provider.signMessage('intent'), (error) => ['malformed_response', 'user_rejected'].includes(error.code));
+    await assert.rejects(provider.signMessage('intent'), (error) => ['malformed_response', 'user_rejected'].includes(error.code) && (error.code !== 'user_rejected' || (error.providerCode === 'Rejected' && error.message === 'sign request declined')));
   }
 });

@@ -49,7 +49,7 @@ function credential(overrides = {}) {
     organizationMember: true,
     publisherAuthorized: true,
     issuedAt: now - 60n,
-    expiresAt: now + 3600n,
+    expiresAt: now + 840n,
     registrationCommitment: new Uint8Array(32).fill(3),
     policyVersion: 1n,
     nonce: new Uint8Array(32).fill(4),
@@ -83,23 +83,12 @@ await expectReject('invalid issuer signature', () => call('authorizeRegistration
 
 const expired = credential({ expiresAt: now - 1n, registrationCommitment: new Uint8Array(32).fill(7) });
 await expectReject('expired credential', () => call('authorizeRegistration', expired.statement, expired.signature));
+const staleLease = credential({ expiresAt: now + 841n, registrationCommitment: new Uint8Array(32).fill(8) });
+await expectReject('status attestation over fifteen minutes old', () => call('authorizeRegistration', staleLease.statement, staleLease.signature));
 
 await expectReject('same-request replay', () => call('authorizeRegistration', valid.statement, valid.signature));
 
-const revocation = {
-  domain: pad32('AudioTrust:revoke:v1'),
-  contractContext: runtime.encodeContractAddress(address),
-  issuerId: blockTekIssuerId,
-  revocationHandle: new Uint8Array(32).fill(5),
-  registrationCommitment: valid.statement.registrationCommitment,
-  requestNonce: valid.statement.nonce,
-  nonce: new Uint8Array(32).fill(8),
-};
-const revokeSig = parseSignature(ed25519.sign(contract._persistentHash_3(revocation), issuerSecret));
-await call('revokeCredential', revocation, revokeSig);
-await expectReject('authorization after revocation', () => call('authorizeRegistration', valid.statement, valid.signature));
-
 console.log('Observed local state:', {
   consumedRequestNullifiers: ledger(publicState).consumedNullifiers.size().toString(),
-  revokedRequestReferences: ledger(publicState).revokedRequestReferences.size().toString(),
+  consumedIssuerUpdateNonces: ledger(publicState).consumedIssuerUpdateNonces.size().toString(),
 });

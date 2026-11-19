@@ -5,15 +5,15 @@ AudioTrust is a portable audio provenance service for Web3 media, podcasts, DAO 
 ## Current implementation
 
 - Next.js 16.4.6 frontend with product, identity, developer, publisher workspace, and public verification surfaces. The identity page still includes prototype behavior.
-- Midnight wallet adapter based on the pinned DApp Connector API 4.1.0. It has no verified live 1AM session or address-binding result.
-- Compact publisher authorization package with historical proof-backed Ledger 9 local evidence. Current credential revocation is request-scoped, so credential-wide revocation remains a security blocker; no public deployment is authorized.
+- Midnight wallet adapter based on the pinned DApp Connector API 4.1.0. A developer manually confirmed that 1AM connects on Preprod. Real message signing and cryptographic binding between the returned signing key and displayed wallet address still need verification.
+- Compact publisher authorization package with fresh proof-backed Ledger 9 local evidence for Compact 0.36.0. The contract enforces issuer-signed status leases of at most 15 minutes and prevents issuer-update nonce replay. Credential-wide revocation still depends on an issuer status service that is not integrated; no public deployment is authorized.
 - TypeScript/Fastify API with PostgreSQL account sessions, publisher onboarding, private audio upload, server-side SHA-256, canonical manifests, durable one-time wallet intent nonces, publisher signature verification, AudioTrust Ed25519 signatures, public evidence, and exact-file comparison. Midnight submission remains pending.
 
 See [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md), [roadmap](docs/roadmap/DEVELOPMENT_ROADMAP.md), [milestone status](docs/roadmap/MILESTONE_STATUS.md), and [security model](docs/security/MVP_SECURITY_MODEL.md).
 
 ## Why Midnight is in the design
 
-Exact-file SHA-256 and portable signatures do not require Midnight. The authorization use case does: an authorized publisher should be able to prove that an issuer approved its publishing eligibility while keeping the underlying credential claims private. The current Compact contract is an isolated proof-backed prototype, not yet connected to the new registration API. The unresolved cross-request revocation gap means it cannot yet provide the required current authorization guarantee.
+Exact-file SHA-256 and portable signatures do not require Midnight. The authorization use case does: an authorized publisher should be able to prove that an issuer approved its publishing eligibility while keeping the underlying credential claims private. The current Compact contract is an isolated proof-backed prototype, not yet connected to the registration API. Its issuer-signed leases bound how long an already-issued status statement can remain usable, but the missing issuer status service means it cannot yet guarantee immediate rejection of a revoked credential.
 
 ## Run locally
 
@@ -54,7 +54,7 @@ Midnight package checks and proof-backed integration are documented in [packages
 
 ### Manual 1AM wallet check
 
-Start the API and UI, open `/app`, create or sign into a publisher account, upload an audio file, and select an installed Midnight wallet. Review the displayed account/network and exact signing intent, then approve the signature in the wallet. The expected current state is `awaiting_midnight`; this version does not submit a chain transaction. The UI will not substitute a mock wallet when none is found. Record the actual wallet name/API version, network, signature scheme, and outcome. Do not enter a seed phrase in AudioTrust.
+The developer manually confirmed that 1AM connects to AudioTrust on Midnight Preprod on 2026-11-18 (Africa/Nairobi). The UI displays the connected account and network. Real 1AM message signing, signature verification, and signing-key-to-address binding have not yet been confirmed. To continue the test, open `/app`, create or sign into a publisher account, upload an audio file, prepare a signing intent, and approve it in the wallet. A successful signature leads to `awaiting_midnight`; this version does not submit an application release transaction. The UI will not substitute a mock wallet when none is found. Record the wallet/API version, network, signature scheme, and outcome. Do not enter a seed phrase in AudioTrust.
 
 Share the local evidence page at `/verify?id=<registration-id>`. It independently verifies the stored manifest digest and both available signatures in the browser, then compares a supplied file's SHA-256 with the registered digest. The API retains a result-only verification event and does not expose an observed hash for mismatch submissions in the public report.
 
@@ -67,6 +67,6 @@ Share the local evidence page at `/verify?id=<registration-id>`. It independentl
 
 ## Product workflow and status
 
-The implemented local flow is account/publisher onboarding → private audio upload → server-side hash → canonical manifest → publisher and AudioTrust signatures → public evidence and MATCH/MISMATCH comparison. This path has been exercised with the isolated development wallet fixture; the workspace itself offers only discovered real wallets. Midnight authorization submission is still pending, and the full MVP workflow is **not complete**.
+The local flow supports account/publisher onboarding → private audio upload → server-side hash → canonical manifest → publisher and AudioTrust signatures → public evidence and MATCH/MISMATCH comparison. A developer has verified the real 1AM connection on Preprod; signing and key-to-address binding remain to be tested. Midnight authorization submission from the application is still pending, and the full MVP workflow is **not complete**.
 
 Status labels and the next acceptance gates are maintained in [MILESTONE_STATUS.md](docs/roadmap/MILESTONE_STATUS.md).
