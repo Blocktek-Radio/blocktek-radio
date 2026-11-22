@@ -12,7 +12,9 @@
     "api:build": "pnpm --filter @blocktek/audiotrust-api build",
     "api:migrate": "pnpm --filter @blocktek/audiotrust-api migrate",
     "api:test": "pnpm --filter @blocktek/audiotrust-api test",
-    "api:platform-key:dev": "pnpm --filter @blocktek/audiotrust-api platform-key:dev"
+    "api:platform-key:dev": "pnpm --filter @blocktek/audiotrust-api platform-key:dev",
+    "verify:evidence": "node scripts/verify-audiotrust-evidence.mjs",
+    "test:evidence": "node --test scripts/*.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

@@ -19,7 +19,6 @@ import pino from 'pino';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { Contract, ledger } from '../../artifacts/contract/contract/index.js';
 
 globalThis.WebSocket = WebSocket;
 
@@ -38,9 +37,14 @@ const bytes = (n) => new Uint8Array(32).fill(n);
 const point = (b) => ed25519.ExtendedPoint.fromBytes(b).toAffine();
 const littleEndianBigInt = (b) => BigInt(`0x${Buffer.from(b).reverse().toString('hex')}`);
 const compactSignature = (b) => ({ r: point(b.slice(0, 32)), s: littleEndianBigInt(b.slice(32)) });
+const artifactPath = path.resolve(
+  process.env.AUDIOTRUST_COMPILED_ARTIFACT_PATH ?? fileURLToPath(new URL('../../artifacts/contract', import.meta.url)),
+);
+const { Contract, ledger } = await import(path.resolve(artifactPath, 'contract/index.js'));
 const contractForHashing = new Contract({});
-const artifactPath = fileURLToPath(new URL('../../artifacts/contract', import.meta.url));
-const addressPath = path.resolve(artifactPath, 'deployment-address.local.json');
+const addressPath = path.resolve(
+  process.env.AUDIOTRUST_ADDRESS_PATH ?? path.resolve(artifactPath, 'deployment-address.local.json'),
+);
 const evidencePath = path.resolve(
   process.env.AUDIOTRUST_EVIDENCE_PATH ?? path.resolve(artifactPath, '../results/local-ledger-evidence.json'),
 );

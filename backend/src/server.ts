@@ -8,7 +8,39 @@ import { registerAudioRoutes } from './audio-routes.js';
 const config = loadConfig();
 const app = Fastify({ logger: { level: config.LOG_LEVEL, redact: ['req.headers.authorization', 'req.headers.cookie'] }, bodyLimit: config.MAX_UPLOAD_BYTES });
 
+// A small in-process guard for the loopback MVP. It intentionally keys only
+// on Fastify's socket IP (never an untrusted forwarded header). Deployments
+// with multiple API workers should replace this with a shared limiter.
+const windows = new Map<string, { count: number; expiresAt: number }>();
+const routeLimits = new Map([
+  ['/api/v1/auth/register', { max: 8, windowMs: 15 * 60_000 }],
+  ['/api/v1/auth/login', { max: 12, windowMs: 15 * 60_000 }],
+  ['/api/v1/audio', { max: 30, windowMs: 60_000 }],
+]);
+const cleanupRateWindows = setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of windows) if (value.expiresAt <= now) windows.delete(key);
+}, 60_000);
+cleanupRateWindows.unref();
+
 app.addHook('onRequest', async (request, reply) => {
+  const route = request.url.split('?')[0];
+  const policy = routeLimits.get(route) ?? (route.startsWith('/api/v1/audio/') ? routeLimits.get('/api/v1/audio') : undefined);
+  if (policy && request.method !== 'OPTIONS') {
+    const key = `${request.ip}:${route}`;
+    const now = Date.now();
+    let window = windows.get(key);
+    if (!window || window.expiresAt <= now) {
+      window = { count: 0, expiresAt: now + policy.windowMs };
+      windows.set(key, window);
+    }
+    window.count += 1;
+    reply.header('x-ratelimit-limit', policy.max).header('x-ratelimit-remaining', Math.max(0, policy.max - window.count));
+    if (window.count > policy.max) {
+      reply.header('retry-after', Math.max(1, Math.ceil((window.expiresAt - now) / 1000)));
+      return reply.code(429).send({ error: 'rate_limited', message: 'Too many requests. Try again after the current rate window.' });
+    }
+  }
   const origin = request.headers.origin;
   if (origin && origin !== config.FRONTEND_ORIGIN) {
     return reply.code(403).send({ error: 'origin_denied', message: 'This application origin is not allowed.' });

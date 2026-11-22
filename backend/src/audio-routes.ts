@@ -378,8 +378,10 @@ export async function registerAudioRoutes(app: FastifyInstance) {
     const observed = digest.digest('hex');
     const result = observed === registration.rows[0].sha256 ? 'match' : 'mismatch';
     await pool.query(
-      'INSERT INTO verification_events (manifest_id, result, observed_sha256) VALUES ($1, $2, $3)',
-      [registration.rows[0].manifest_id, result, observed],
+      // Retain the outcome and time only. The digest of an unregistered file
+      // can itself become a stable identifier, so it is not persisted.
+      'INSERT INTO verification_events (manifest_id, result, observed_sha256) VALUES ($1, $2, NULL)',
+      [registration.rows[0].manifest_id, result],
     );
     return { registrationId: registration.rows[0].id, result: result.toUpperCase(), expectedSha256: registration.rows[0].sha256, observedSha256: observed, byteSize: size };
   });

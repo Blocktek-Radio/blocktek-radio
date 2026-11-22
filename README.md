@@ -1,72 +1,189 @@
-# BlockTek AudioTrust
+# BlockTek Radio / AudioTrust
 
-AudioTrust is a portable audio provenance service for Web3 media, podcasts, DAO channels, and ecosystem publishers. It is designed to answer: **who published this release, which key authorized it, what exact file was registered, and what verifiable evidence exists?** It does not determine whether audio is truthful, identify a real-world voice, establish copyright ownership, or prove that a recording was unmodified before registration.
+**AudioTrust gives audio publishers portable, cryptographically verifiable release evidence.** A release record binds a publisher account, a signing intent, a canonical manifest, and the SHA-256 digest of the exact uploaded file. Public evidence lets another party verify the signatures and compare a file without signing into the publisher workspace.
 
-## Current implementation
+AudioTrust does not determine whether audio is truthful, identify a real-world speaker, establish copyright ownership, prove legal identity without supporting evidence, or verify that a recording was authentic before registration.
 
-- Next.js 16.4.6 frontend with product, identity, developer, publisher workspace, and public verification surfaces. The identity page still includes prototype behavior.
-- Midnight wallet adapter based on the pinned DApp Connector API 4.1.0. A developer manually confirmed that 1AM connects on Preprod. Real message signing and cryptographic binding between the returned signing key and displayed wallet address still need verification.
-- Compact publisher authorization package with fresh proof-backed Ledger 9 local evidence for Compact 0.36.0. The contract enforces issuer-signed status leases of at most 15 minutes and prevents issuer-update nonce replay. Credential-wide revocation still depends on an issuer status service that is not integrated; no public deployment is authorized.
-- TypeScript/Fastify API with PostgreSQL account sessions, publisher onboarding, private audio upload, server-side SHA-256, canonical manifests, durable one-time wallet intent nonces, publisher signature verification, AudioTrust Ed25519 signatures, public evidence, and exact-file comparison. Midnight submission remains pending.
+## Project status
 
-See [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md), [roadmap](docs/roadmap/DEVELOPMENT_ROADMAP.md), [milestone status](docs/roadmap/MILESTONE_STATUS.md), and [security model](docs/security/MVP_SECURITY_MODEL.md).
+**Status: Local signed-release MVP slice implemented; complete Midnight-authorized release workflow is not yet ready.**
 
-## Why Midnight is in the design
+| Area | Current implementation status |
+|---|---|
+| Publisher accounts | Fastify/PostgreSQL account creation, login, session revocation, single-owner publisher onboarding, and ownership checks are implemented. Email verification and independent legal-identity verification are not configured. |
+| Audio registration | Private filesystem upload, basic media signature/type checks, server-side SHA-256, durable signing intent and one-use nonce, manifest creation, creator signature verification, and development platform signing are implemented. |
+| Wallet | The pinned Midnight DApp Connector 4.1.0 adapter is implemented and has 15 passing unit tests. A previous 1AM Preprod connection was manually confirmed, but live `signData` behavior and signing-key-to-address binding remain unverified. |
+| Public verification | Public evidence, release history, original-file `MATCH`, modified-file `MISMATCH`, and a standalone evidence verification CLI are implemented. File equality proves exact byte equality only. |
+| Compact authorization | The Compact 0.36 source passes the skip-ZK compile check and seven generated-runtime tests. A full compile generated current local proving/verifier artifacts. |
+| Local Ledger 9 | The node, indexer, and proof server started successfully. A fresh deployment proof was generated and its transaction was accepted into the node mempool, but it did not finalize or appear in the indexer within 600 seconds. The integration run ended 5 failed / 0 passed; it is **not** a Ledger success. |
+| API-to-Midnight flow | **Not implemented.** The API currently returns `awaiting_midnight`; there is no issuer status service, proof witness builder, transaction coordinator, finality/indexer reconciliation, or retry recovery path. Credential-wide revocation is not enforced by the current application. |
 
-Exact-file SHA-256 and portable signatures do not require Midnight. The authorization use case does: an authorized publisher should be able to prove that an issuer approved its publishing eligibility while keeping the underlying credential claims private. The current Compact contract is an isolated proof-backed prototype, not yet connected to the registration API. Its issuer-signed leases bound how long an already-issued status statement can remain usable, but the missing issuer status service means it cannot yet guarantee immediate rejection of a revoked credential.
+The local API workflow has been verified with an isolated development-only synthetic wallet. That check is not evidence of live 1AM compatibility or an on-chain authorization. See the [current milestone status](docs/roadmap/MILESTONE_STATUS.md), [test results](docs/backend/END_TO_END_TEST_RESULTS.md), and [fresh local Ledger attempt](docs/evidence/LOCAL_LEDGER_ATTEMPT_2026-11-22.md) for evidence and limits.
 
-## Run locally
+## High-level architecture
 
-Install dependencies, start the isolated user-owned PostgreSQL cluster, then apply migrations:
+```mermaid
+flowchart LR
+  creator[Publisher / creator]
+  thirdParty[Independent verifier]
+  wallet[1AM wallet\nMidnight DApp Connector]
 
-```bash
+  subgraph app[AudioTrust application]
+    ui[Next.js publisher workspace]
+    api[Fastify API\nAuth · ownership · upload · intents]
+    manifest[Manifest + signatures\nSHA-256 · creator · platform]
+    verify[Public evidence + file verifier]
+    coordinator[Midnight coordinator\nNOT IMPLEMENTED]
+  end
+
+  subgraph persistence[Private local persistence]
+    db[(PostgreSQL\naccounts · publishers · releases · evidence)]
+    files[(Private audio filesystem\nopaque object IDs)]
+  end
+
+  subgraph midnight[Midnight authorization package / local Ledger 9]
+    issuer[BlockTek issuer/status service\nNOT IMPLEMENTED]
+    proof[Compact witness + proof generation]
+    contract[Compact publisher authorization contract]
+    node[Local Midnight node]
+    indexer[Local indexer]
+    proofServer[Local proof server]
+  end
+
+  creator --> ui
+  ui <--> wallet
+  ui <-->|session, upload, intent, evidence| api
+  api <--> db
+  api --> files
+  api --> manifest
+  manifest --> db
+  thirdParty --> verify
+  verify <--> api
+  verify -. compares supplied file digest .-> manifest
+
+  api -. registration integration missing .-> coordinator
+  coordinator -. active status required .-> issuer
+  issuer -. typed private witness .-> proof
+  coordinator -. proof request .-> proofServer
+  proof --> proofServer
+  proof --> contract
+  contract --> node
+  node --> indexer
+  indexer -. finality/evidence must be reconciled .-> coordinator
+  coordinator -. persist authorization evidence .-> db
+```
+
+Solid paths are the current application boundaries. Dashed Midnight paths describe the intended authorization flow; the coordinator and issuer are not wired into the API. Audio files stay off-chain. The current Compact contract uses a request-specific replay nullifier and permits a signed status lease of up to 900 seconds; that lease does not by itself provide immediate credential-wide revocation.
+
+## Current release workflow
+
+1. A publisher creates an account and a single-owner publisher identity.
+2. The authenticated API validates and privately stores an audio file, computes its SHA-256, and creates a release record.
+3. The API creates a short-lived signing intent that binds the account string, network, release commitment, manifest commitment, and one-use nonce.
+4. The connected wallet may sign that exact intent. The API verifies the returned signature and stores the creator signature and development-only AudioTrust platform signature.
+5. The release is currently left in `awaiting_midnight`. It can be shared and its signature evidence/file digest can be checked, but it is not a Midnight-authorized release.
+
+## Local development
+
+### Requirements
+
+- Node.js 24 (Node 22.12+ for the Compact package)
+- pnpm 12
+- PostgreSQL 18 server binaries
+- Podman 5.7 for the local Ledger 9 services
+
+Install dependencies and start the isolated AudioTrust database:
+
+```sh
 pnpm install
 ./scripts/dev-db-up.sh
 pnpm api:migrate
 ```
 
-Run the UI and API in separate terminals:
+The database script uses a private user-owned PostgreSQL cluster, Unix socket, and port 5440. It preserves an existing `backend/.env.local`; verify that file points to the AudioTrust cluster. The system PostgreSQL instance on port 5432 is not the application database.
 
-```bash
-pnpm dev
-pnpm api:dev
+To run the local Midnight services, start Podman's API socket in one terminal if it is not already active:
+
+```sh
+mkdir -p "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman"
+podman system service --time=0 "unix://${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
 ```
 
-The UI is at `http://localhost:3000`; the API health endpoint is `http://127.0.0.1:4100/api/v1/health`. PostgreSQL uses a private Unix socket on port 5440 and its data lives outside the repository. `scripts/dev-db-down.sh` stops only AudioTrust's user-owned cluster. See [local setup](docs/architecture/SYSTEM_ARCHITECTURE.md#local-development).
+Then start the devnet:
 
-Create the explicitly development-only AudioTrust platform signing key once after starting PostgreSQL:
+```sh
+pnpm --dir packages/midnight-authorization devnet:up
+pnpm --dir packages/midnight-authorization devnet:status
+```
 
-```bash
+Start the API and frontend in separate terminals:
+
+```sh
+pnpm api:dev
+pnpm dev
+```
+
+| Service | Local address |
+|---|---|
+| Publisher workspace | <http://localhost:3000/app> |
+| Public verifier | <http://localhost:3000/verify> |
+| API health | <http://127.0.0.1:4100/api/v1/health> |
+| Local Midnight node | <http://127.0.0.1:9944> |
+| Local indexer | <http://127.0.0.1:8088> |
+| Local proof server | <http://127.0.0.1:6300> |
+
+The local devnet uses network ID `undeployed`. The current API environment has been configured for `preprod`; resolve that mismatch before attempting any local wallet-to-Ledger workflow. The running devnet alone is not evidence of an application transaction.
+
+The development platform signing key can be created once with:
+
+```sh
 pnpm api:platform-key:dev
 ```
 
-It is stored outside the repo with mode `0600`; never use this local key for production.
+It is stored outside the repository with restrictive permissions. It is for local development only and does not represent production key custody.
 
-## Checks
+## Checks and verification tools
 
-```bash
-pnpm test:wallet
+```sh
+pnpm build
 pnpm api:build
-pnpm api:migrate
+pnpm api:test
+pnpm test:wallet
+pnpm test:evidence
+pnpm --dir packages/midnight-authorization compile:check
+pnpm --dir packages/midnight-authorization test
 ```
 
-Midnight package checks and proof-backed integration are documented in [packages/midnight-authorization/README.md](packages/midnight-authorization/README.md). Historical transaction evidence must not be represented as a fresh run.
+The fresh local run passed the frontend build, API build, 3 storage tests, 15 wallet adapter tests, 1 portable verifier test, skip-ZK Compact compile check, and 7 Compact generated-runtime tests. The proof-backed Ledger integration attempt timed out before finality/indexing; do not infer an on-chain pass from the proof server response or a mempool hash.
 
-### Manual 1AM wallet check
+Verify exported public evidence independently of the AudioTrust frontend:
 
-The developer manually confirmed that 1AM connects to AudioTrust on Midnight Preprod on 2026-11-18 (Africa/Nairobi). The UI displays the connected account and network. Real 1AM message signing, signature verification, and signing-key-to-address binding have not yet been confirmed. To continue the test, open `/app`, create or sign into a publisher account, upload an audio file, prepare a signing intent, and approve it in the wallet. A successful signature leads to `awaiting_midnight`; this version does not submit an application release transaction. The UI will not substitute a mock wallet when none is found. Record the wallet/API version, network, signature scheme, and outcome. Do not enter a seed phrase in AudioTrust.
+```sh
+curl -fsS 'http://127.0.0.1:4100/api/v1/audio/<registration-id>/evidence' -o evidence.json
+pnpm verify:evidence -- evidence.json /path/to/original-audio.wav
+```
 
-Share the local evidence page at `/verify?id=<registration-id>`. It independently verifies the stored manifest digest and both available signatures in the browser, then compares a supplied file's SHA-256 with the registered digest. The API retains a result-only verification event and does not expose an observed hash for mismatch submissions in the public report.
+The CLI verifies the canonical manifest digest, creator signature and its manifest/release binding, AudioTrust platform signature, and optional file hash. It reports Midnight as pending/unavailable or requiring a trusted network/indexer check; it does not claim to independently prove finality.
 
-## Product trust boundaries
+## Manual 1AM check
 
-- A wallet signature proves control of a key for a particular request; it does not prove legal identity, authorship in a legal sense, or copyright ownership.
-- A BlockTek credential proves only the claims the issuer approved. OWL ID is not integrated.
-- Audio is private by default. Raw audio, credentials, witness data, and private keys must not go on public chains.
-- Audio is never returned by the public evidence API. Verification records the result and timestamp but does not publish the observed hash for a mismatch file.
+The connector has not passed live 1AM signing or account-binding acceptance. A safe manual connector check is documented in [1AM manual wallet acceptance](docs/backend/1AM_MANUAL_WALLET_ACCEPTANCE.md). Never provide seed phrases or private keys to AudioTrust. The current expected result after signing is still `awaiting_midnight`; no transaction is submitted by the API.
 
-## Product workflow and status
+## Trust and privacy boundaries
 
-The local flow supports account/publisher onboarding → private audio upload → server-side hash → canonical manifest → publisher and AudioTrust signatures → public evidence and MATCH/MISMATCH comparison. A developer has verified the real 1AM connection on Preprod; signing and key-to-address binding remain to be tested. Midnight authorization submission from the application is still pending, and the full MVP workflow is **not complete**.
+- A matching SHA-256 proves that supplied bytes match the registered digest; it does not prove truth, speaker identity, copyright, or pre-registration authenticity.
+- A creator signature proves that its signing key signed a specific intent. The current connector does not establish that this key derives from the displayed Midnight address.
+- The AudioTrust platform key is development-only. Publisher assurance is not independent legal identity verification.
+- Audio, credentials, seed phrases, and private keys are not stored on Midnight.
+- New file verification records retain the result and timestamp, not an observed mismatch digest.
 
-Status labels and the next acceptance gates are maintained in [MILESTONE_STATUS.md](docs/roadmap/MILESTONE_STATUS.md).
+## Project documentation
+
+- [Final implementation report](docs/audit/FINAL_MVP_IMPLEMENTATION_REPORT.md)
+- [Milestone status](docs/roadmap/MILESTONE_STATUS.md)
+- [Local demo runbook](docs/backend/LOCAL_DEMO_RUNBOOK.md)
+- [1AM manual acceptance](docs/backend/1AM_MANUAL_WALLET_ACCEPTANCE.md)
+- [End-to-end test results](docs/backend/END_TO_END_TEST_RESULTS.md)
+- [Security review](docs/security/FINAL_MVP_SECURITY_REVIEW.md)
+- [Architecture details](docs/architecture/FINAL_IMPLEMENTATION_ARCHITECTURE.md)
+- [Midnight authorization package](packages/midnight-authorization/README.md)
