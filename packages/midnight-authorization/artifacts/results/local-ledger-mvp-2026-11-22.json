@@ -1,0 +1,11 @@
+{
+  "evidenceKind": "ledger-9-local-integration",
+  "networkId": "undeployed",
+  "testStartedAt": "2026-11-21T22:23:55.530Z",
+  "contractVersion": "AudioTrustPublisherAuthorization / Compact 0.36.0",
+  "contractAddress": null,
+  "scenarios": [],
+  "transactionIds": [],
+  "testFinishedAt": "2026-11-21T22:33:58.038Z",
+  "status": "SETUP_FAILED"
+}

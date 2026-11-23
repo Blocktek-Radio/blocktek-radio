@@ -43,6 +43,7 @@ if ! PGHOST="$socket_dir" PGPORT="$port" psql -d postgres -Atqc "SELECT 1 FROM p
 fi
 
 encoded_socket="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$socket_dir")"
+if [[ ! -e backend/.env.local ]]; then
 cat > backend/.env.local <<EOF
 HOST=127.0.0.1
 PORT=4100
@@ -56,5 +57,8 @@ MAX_UPLOAD_BYTES=104857600
 LOG_LEVEL=info
 EOF
 chmod 600 backend/.env.local
+else
+  echo "Preserving existing backend/.env.local; verify it targets the private port $port cluster."
+fi
 echo "AudioTrust PostgreSQL is ready on private socket $socket_dir, port $port."
-echo "Local API configuration written to backend/.env.local (gitignored)."
+echo "Local API configuration is in backend/.env.local (gitignored)."
